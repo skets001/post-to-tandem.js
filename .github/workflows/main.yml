@@ -1,0 +1,33 @@
+name: Post eWeLink temp to Tandem
+on:
+  schedule:
+    - cron: "*/15 * * * *"  # Runs every 15 minutes (UTC)
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install ewelink-api-next node-fetch
+      - run: node post-to-tandem.js
+        env:
+          EWL_APP_ID:        ${{ secrets.EWL_APP_ID }}
+          EWL_APP_SECRET:    ${{ secrets.EWL_APP_SECRET }}
+          EWL_REGION:        ${{ secrets.EWL_REGION }}
+          EWL_EMAIL:         ${{ secrets.EWL_EMAIL }}
+          EWL_PASSWORD:      ${{ secrets.EWL_PASSWORD }}
+          EWL_AREACODE:      ${{ secrets.EWL_AREACODE }}
+          EWL_DEVICE_ID:     ${{ secrets.EWL_DEVICE_ID }}
+          TANDEM_URL:        ${{ secrets.TANDEM_URL }}
+          TANDEM_BASIC:      ${{ secrets.TANDEM_BASIC }}
+          TANDEM_SIGNAL_ID:  ${{ secrets.TANDEM_SIGNAL_ID }}
+      - run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add last_temp.txt
+          git commit -m "Update last temperature" || echo "No changes to commit"
+          git push
