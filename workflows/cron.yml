@@ -2,7 +2,7 @@ name: Post eWeLink temp to Tandem
 on:
   schedule:
     - cron: "*/15 * * * *"  # Runs every 15 minutes (UTC)
-  workflow_dispatch:        # Allows manual triggering
+  workflow_dispatch:
 
 jobs:
   run:
@@ -25,3 +25,9 @@ jobs:
           TANDEM_URL:        ${{ secrets.TANDEM_URL }}
           TANDEM_BASIC:      ${{ secrets.TANDEM_BASIC }}
           TANDEM_SIGNAL_ID:  ${{ secrets.TANDEM_SIGNAL_ID }}
+      - run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add last_temp.txt
+          git commit -m "Update last temperature" || echo "No changes to commit"
+          git push
