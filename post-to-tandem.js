@@ -1,24 +1,23 @@
 import eWeLink from "ewelink-api-next";
 import fetch from "node-fetch";
+import fs from "fs";
 
 async function getTemp() {
   const client = new eWeLink.WebAPI({
     appId: process.env.EWL_APP_ID,
     appSecret: process.env.EWL_APP_SECRET,
-    region: process.env.EWL_REGION || "us",
+    region: process.env.EWL_REGION || "as",
     logObj: console,
   });
   try {
-    // Login to eWeLink using account credentials
     await client.user.login({
       account: process.env.EWL_EMAIL,
       password: process.env.EWL_PASSWORD,
-      areaCode: process.env.EWL_AREACODE || "+1", // Adjust to your country code, e.g., "+91"
+      areaCode: process.env.EWL_AREACODE || "+91",
     });
-    // Fetch Zigbee sensor status
     const res = await client.device.getThingStatus({ deviceId: process.env.EWL_DEVICE_ID });
     const params = res?.data?.params || res?.data || {};
-    // Extract temperature from possible parameter keys
+    // SNZB-02P typically uses 'temperature' key
     const temp = params.temperature ?? 
                  params.currentTemperature ?? 
                  (params.tmp && (params.tmp.curr || params.tmp.value)) ?? 
@@ -58,10 +57,30 @@ async function postToTandem(temp) {
 
 async function main() {
   const temp = await getTemp();
-  if (Number.isFinite(temp)) {
-    await postToTandem(temp);
-  } else {
+  if (!Number.isFinite(temp)) {
     console.log("No valid numeric temperature found");
+    return;
+  }
+
+  // Read previous temperature
+  let lastTemp = null;
+  try {
+    lastTemp = Number(fs.readFileSync("last_temp.txt", "utf8"));
+  } catch (error) {
+    console.log("No previous temperature found, will post first value");
+  }
+
+  // Post if temperature changed by >= 0.2°C or first run
+  if (lastTemp === null || Math.abs(temp - lastTemp) >= 0.2) {
+    await postToTandem(temp);
+    // Save new temperature
+    try {
+      fs.writeFileSync("last_temp.txt", temp.toString(), "utf8");
+    } catch (error) {
+      console.error("Error saving temperature:", error.message);
+    }
+  } else {
+    console.log(`Temperature change (${Math.abs(temp - lastTemp)}°C) too small, skipping post`);
   }
 }
 
