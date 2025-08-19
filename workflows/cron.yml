@@ -1,33 +1,109 @@
-name: Post eWeLink temp to Tandem
+name: eWeLink to Tandem Temperature Bridge
+
 on:
   schedule:
-    - cron: "*/15 * * * *"  # Runs every 15 minutes (UTC)
+    # Runs every 5 minutes (adjust as needed)
+    - cron: "*/5 * * * *"
+  # Allow manual triggering
   workflow_dispatch:
+    inputs:
+      force_post:
+        description: 'Force post regardless of temperature change threshold'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
-  run:
+  post-temperature:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          node-version: 20
-      - run: npm install ewelink-api-next node-fetch
-      - run: node post-to-tandem.js
+          # Need to fetch previous commits to access last_temp.txt
+          fetch-depth: 2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm init -y
+          npm install ewelink-api-next node-fetch
+
+      - name: Create package.json with ES modules support
+        run: |
+          cat > package.json << 'EOF'
+          {
+            "name": "ewelink-tandem-bridge",
+            "version": "1.0.0",
+            "type": "module",
+            "description": "Bridge between eWeLink Zigbee sensors and Autodesk Tandem",
+            "main": "post-to-tandem.js",
+            "dependencies": {
+              "ewelink-api-next": "^2.10.3",
+              "node-fetch": "^3.3.2"
+            }
+          }
+          EOF
+
+      - name: Reinstall dependencies with correct package.json
+        run: npm install
+
+      - name: Validate environment variables
+        run: |
+          echo "Checking required environment variables..."
+          if [ -z "${{ secrets.EWL_APP_ID }}" ]; then echo "❌ EWL_APP_ID missing"; exit 1; fi
+          if [ -z "${{ secrets.EWL_APP_SECRET }}" ]; then echo "❌ EWL_APP_SECRET missing"; exit 1; fi
+          if [ -z "${{ secrets.EWL_EMAIL }}" ]; then echo "❌ EWL_EMAIL missing"; exit 1; fi
+          if [ -z "${{ secrets.EWL_PASSWORD }}" ]; then echo "❌ EWL_PASSWORD missing"; exit 1; fi
+          if [ -z "${{ secrets.EWL_DEVICE_ID }}" ]; then echo "❌ EWL_DEVICE_ID missing"; exit 1; fi
+          if [ -z "${{ secrets.TANDEM_URL }}" ]; then echo "❌ TANDEM_URL missing"; exit 1; fi
+          if [ -z "${{ secrets.TANDEM_BASIC }}" ]; then echo "❌ TANDEM_BASIC missing"; exit 1; fi
+          if [ -z "${{ secrets.TANDEM_SIGNAL_ID }}" ]; then echo "❌ TANDEM_SIGNAL_ID missing"; exit 1; fi
+          echo "✅ All required environment variables are present"
+
+      - name: Run temperature posting script
         env:
-          EWL_APP_ID:        ${{ secrets.EWL_APP_ID }}
-          EWL_APP_SECRET:    ${{ secrets.EWL_APP_SECRET }}
-          EWL_REGION:        ${{ secrets.EWL_REGION }}
-          EWL_EMAIL:         ${{ secrets.EWL_EMAIL }}
-          EWL_PASSWORD:      ${{ secrets.EWL_PASSWORD }}
-          EWL_AREACODE:      ${{ secrets.EWL_AREACODE }}
-          EWL_DEVICE_ID:     ${{ secrets.EWL_DEVICE_ID }}
-          TANDEM_URL:        ${{ secrets.TANDEM_URL }}
-          TANDEM_BASIC:      ${{ secrets.TANDEM_BASIC }}
-          TANDEM_SIGNAL_ID:  ${{ secrets.TANDEM_SIGNAL_ID }}
-      - run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add last_temp.txt
-          git commit -m "Update last temperature" || echo "No changes to commit"
-          git push
+          EWL_APP_ID: ${{ secrets.EWL_APP_ID }}
+          EWL_APP_SECRET: ${{ secrets.EWL_APP_SECRET }}
+          EWL_REGION: ${{ secrets.EWL_REGION }}
+          EWL_EMAIL: ${{ secrets.EWL_EMAIL }}
+          EWL_PASSWORD: ${{ secrets.EWL_PASSWORD }}
+          EWL_AREACODE: ${{ secrets.EWL_AREACODE }}
+          EWL_DEVICE_ID: ${{ secrets.EWL_DEVICE_ID }}
+          TANDEM_URL: ${{ secrets.TANDEM_URL }}
+          TANDEM_BASIC: ${{ secrets.TANDEM_BASIC }}
+          TANDEM_SIGNAL_ID: ${{ secrets.TANDEM_SIGNAL_ID }}
+          FORCE_POST: ${{ github.event.inputs.force_post }}
+        run: node post-to-tandem.js
+
+      - name: Commit and push temperature file
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          # Check if last_temp.txt exists and has changes
+          if [ -f "last_temp.txt" ]; then
+            git add last_temp.txt
+            
+            # Only commit if there are changes
+            if git diff --staged --quiet; then
+              echo "No changes to last_temp.txt"
+            else
+              git commit -m "📊 Update last temperature reading [automated]"
+              git push
+              echo "✅ Committed temperature update"
+            fi
+          else
+            echo "ℹ️ No temperature file to commit"
+          fi
+
+      - name: Log workflow completion
+        run: |
+          echo "🎉 Workflow completed successfully at $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
